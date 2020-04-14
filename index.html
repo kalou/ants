@@ -1,0 +1,40 @@
+<html>
+<head>
+<title>Ants</title>
+<!-- Global site tag (gtag.js) - Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-122925-1"></script>
+<script>
+  hash = {
+        "kalou.fr": 1,
+        "who.re": 3,
+        "whe.re": 4,
+        "xslk.com": 5,
+        "sco.re": 6,
+        "ten.pm": 7,
+        "bad-example.com": 8,
+        "xn--db-bja.com": 9,
+        "xn--rh-pia.com": 10,
+        "bitmare.com": 11,
+        "xn-r-wfa.com": 12,
+        "commit.science": 14,
+        "tfz.net": 15,
+        "some.guru": 18
+  }
+  var u = new URL(window.location.origin).hostname
+  track = "UA-122925-" + (hash[u.split(".").slice(-2).join(".")] || 1)
+
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', track);
+</script>
+<link rel="stylesheet" type="text/css" href="style.css" />
+
+<script src="ant.js"></script>
+
+</head>
+<body>
+    <canvas></canvas>
+</body>
+</html>
