@@ -1,23 +1,6 @@
 // CC BY-SA
 // Ant globals: sprite data
 // CORS issues dev avoided with ~ python -m SimpleHTTPServer 8000
-var body = new Image();
-body.src = 'sprites/body.png';
-
-var legs = new Array();
-for (var i = 0; i < 8; i++) {
-    legs[i] = new Image();
-    legs[i].src = 'sprites/legs' + i + '.png';
-}
-
-var heads = {};
-["head_rad", "head_lad", "headR", "headL", "head"].forEach(head => {
-    heads[head] = new Image();
-    heads[head].src = 'sprites/' + head + '.png';
-});
-
-var finish = new Image();
-finish.src = 'sprites/finish.png';
 
 function max(a, b) {
     return a < b ? b : a;
@@ -26,22 +9,41 @@ function min(a, b) {
     return a > b ? b : a;
 }
 
-function drawImage(img, ctx, x, y, scale) {
-    ctx.drawImage(img, x, y, img.width/scale, img.height/scale);
+//XXX should have some onload logic
+var Images = {
+};
+
+function loadImage(name) {
+    var img = new Image();
+    img.src = 'sprites/' + name + '.png';
+    Images[name] = img;
+    return img;
 }
 
-function rotate(img, ctx, x, y, scale) {
+loadImage('finish');
+loadImage('body');
+loadImage('head');
+loadImage('head_rad');
+loadImage('head_lad');
+var legs = new Array();
+for (var i = 0; i < 8; i++) {
+    loadImage('legs' + i);
+}
+
+function rotate(ctx, x, y, width, height, times) {
     // Image needs to be square
     // This gets the raw data, and swaps the image in place
     // In a rotation (x,y) becomes (N-y, x)
     // With x=i%N, y=i//N -> tx=N-i//n, ty=i%N -> ti = N*(ty)+tx
-    var data = ctx.getImageData(x, y, img.width/scale,
-        img.height/scale);
+    var data = ctx.getImageData(x, y, width, height);
     var newData = new ImageData(data.width, data.height);
 
     for (i = 0; i < data.width * data.height; i ++) {
-        new_i = data.width * (i % data.width) +
-            data.width - Math.floor(i / data.width) - 1;
+        var new_i = i;
+        for (j = 0; j < times; j++) {
+            new_i = data.width * (new_i % data.width) +
+                data.width - Math.floor(new_i / data.width) - 1;
+        }
         // XXX I want to access this array as an Int32 one instead
         newData.data[new_i*4] = data.data[i*4];
         newData.data[new_i*4 + 1] = data.data[i*4 + 1];
@@ -51,6 +53,68 @@ function rotate(img, ctx, x, y, scale) {
 
     ctx.putImageData(newData, x, y);
 }
+
+// We do virtual sprites combos for bad reason- for cpu fan noise reasons
+// we we pre-render all of it
+function drawSprite(ctx, name, scale) {
+    if (name.startsWith('ant')) {
+        ctx.drawImage(Images['body'], 0, 0, 128/scale, 128/scale);
+        switch(name.substr(4, 3)) {
+            case 'lad':
+                ctx.drawImage(Images['head_lad'], 0, 0, 128/scale, 128/scale);
+                break;
+            case 'rad':
+                ctx.drawImage(Images['head_rad'], 0, 0, 128/scale, 128/scale);
+                break;
+            case 'nad':
+                ctx.drawImage(Images['head'], 0, 0, 128/scale, 128/scale);
+                break;
+        }
+        ctx.drawImage(Images['legs' + name.substr(8, 1)], 0, 0,
+            128/scale, 128/scale);
+    } else {
+        ctx.drawImage(Images[name], 0, 0, 128/scale, 128/scale);
+    }
+}
+
+function loadSprite(ctx, name, scale) {
+    console.log('Initial load for ' + name + ' scale ' + scale);
+    var ret = [];
+
+    // Ret has 4 rotations
+    ctx.clearRect(0, 0, 128, 128);
+    drawSprite(ctx, name, scale);
+    ret.push(ctx.getImageData(0, 0, 128/scale, 128/scale));
+
+    for (var i = 0; i < 3; i++) {
+        rotate(ctx, 0, 0, 128/scale, 128/scale, 1);
+        ret.push(ctx.getImageData(0, 0, 128/scale, 128/scale));
+    }
+    ctx.clearRect(0, 0, 128, 128);
+
+    return ret;
+}
+
+var spritesCache = {};
+
+function drawImage(name, ctx, x, y, scale, rotated) {
+    var sprites;
+
+    if (!(scale in spritesCache)) {
+        spritesCache[scale] = {};
+    }
+
+    if (name in spritesCache[scale]) {
+        sprites = spritesCache[scale][name];
+    } else {
+        sprites = loadSprite(ctx, name, scale);
+        spritesCache[scale] = Object.assign(spritesCache[scale], {
+            [name]: sprites
+        });
+    }
+    ctx.putImageData(sprites[rotated], x, y);
+}
+
 
 function veccmp(a, b) {
     // comments? :)
@@ -83,8 +147,8 @@ function Finish(x, y, scale) {
 Finish.prototype = {
     render(scene, ctx) {
         ctx.clearRect(this.pos[0], this.pos[1],
-            body.width/this.scale, body.height/this.scale);
-        drawImage(finish, ctx, this.pos[0], this.pos[1], this.scale);
+            128/this.scale, 128/this.scale);
+        drawImage('finish', ctx, this.pos[0], this.pos[1], this.scale, 0);
 
         return [this.pos[0], this.pos[1]];
     }
@@ -265,61 +329,29 @@ Ant.prototype = {
         }
 
         ctx.clearRect(this.pos[0], this.pos[1],
-            body.width/this.scale, body.height/this.scale);
+            128/this.scale, 128/this.scale);
 
         this.move(scene);
 
-        drawImage(body, ctx, this.pos[0], this.pos[1], this.scale);
-        drawImage(legs[frame], ctx, this.pos[0], this.pos[1], this.scale);
+        var rot = {
+            '0,0': 0,
+            '0,-1': 0,
+            '1,0': 1,
+            '0,1': 2,
+            '-1,0': 3
+        }[this.vector.join()];
 
         // Head movement is random
         if (this.rad > 0) {
-            drawImage(heads['head_rad'], ctx, this.pos[0], this.pos[1],
-                this.scale);
+            drawImage('ant_rad_' + frame, ctx, this.pos[0], this.pos[1],
+                this.scale, rot);
         } else if (this.lad > 0) {
-            drawImage(heads['head_lad'], ctx, this.pos[0], this.pos[1],
-                this.scale);
+            drawImage('ant_lad_' + frame, ctx, this.pos[0], this.pos[1],
+                this.scale, rot);
         } else {
-            switch(this.looking) {
-                case 0:
-                    drawImage(heads['head'], ctx, this.pos[0], this.pos[1],
-                        this.scale);
-                    break;
-                case -1:
-                    drawImage(heads['headL'], ctx, this.pos[0], this.pos[1],
-                        this.scale);
-                    break;
-                case 1:
-                    drawImage(heads['headR'], ctx, this.pos[0], this.pos[1],
-                        this.scale);
-                    break;
-            }
+            drawImage('ant_nad_' + frame, ctx, this.pos[0], this.pos[1],
+                this.scale, rot);
         }
-        // We pass "body" for image size reference below but other than
-        // hinting on size, is not used - anything works
-        switch(this.vector.join()) {
-            case "0,0":
-                // Assume by default ^
-                break;
-            case "1,0":
-                rotate(body, ctx, this.pos[0], this.pos[1], this.scale);
-                break;
-            case "0,1":
-                rotate(body, ctx, this.pos[0], this.pos[1], this.scale);
-                rotate(body, ctx, this.pos[0], this.pos[1], this.scale);
-                break;
-            case "-1,0":
-                rotate(body, ctx, this.pos[0], this.pos[1], this.scale);
-                rotate(body, ctx, this.pos[0], this.pos[1], this.scale);
-                rotate(body, ctx, this.pos[0], this.pos[1], this.scale);
-                break;
-            case "-1,-1":
-                rotate(body, ctx, this.pos[0], this.pos[1], this.scale);
-                rotate(body, ctx, this.pos[0], this.pos[1], this.scale);
-                rotate(body, ctx, this.pos[0], this.pos[1], this.scale);
-                rotate(body, ctx, this.pos[0], this.pos[1], this.scale);
-        }
-
         return [this.pos[0], this.pos[1]];
     }
 }
@@ -430,7 +462,9 @@ var pressed = {
 };
 
 window.addEventListener("keydown", function (e) {
-    pressed[e.keyCode] = true;
+    if (e.keyCode in pressed) {
+        pressed[e.keyCode] = true;
+    }
     e.preventDefault();
 });
 
@@ -448,7 +482,7 @@ window.onload = function () {
 
     var scene = new Scene();
 
-    scene.load(lev9);
+    scene.load(lev18);
 
 
     var loop = function() {
@@ -496,5 +530,60 @@ var lev9 = [
        [E, E, E, E, E, E, E, E, E, E, E, F],
        [E, E, E, E, E, E, E, E, E, E, E, E],
     ];
+
+var lev18 = [
+       [E, E, E, E, E, E, E, E, E, E, E, E, P, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, A, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, A, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, A, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, F],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+    ];
+
+var lev18 = [
+       [E, E, E, E, E, E, E, E, E, E, E, E, P, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, A, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, A, E, E, E],
+       [E, E, E, A, E, E, E, E, E, E, E, E, E, E, A, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, A, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, A, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, A, E, A, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, F],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, A, E, E, E, E, E, A, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, A, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, A, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, A, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+    ];
+
 
 
