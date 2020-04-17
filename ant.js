@@ -202,12 +202,10 @@ Ant.prototype = {
 
     turnLeft() {
         this.vector = turnLeft(this.vector);
-        this.going = this.vector;
     },
 
     turnRight() {
         this.vector = turnRight(this.vector);
-        this.going = this.vector;
     },
 
     brain(scene) {
@@ -215,25 +213,52 @@ Ant.prototype = {
         // For now: chaos
         rnd = Math.random();
         if (rnd < .01) {
-            this.turnLeft();
+            this.going = turnLeft(this.vector);
         } else if (rnd > .99) {
-            this.turnRight();
+            this.going = turnRight(this.vector);
         }
 
         // I want to go all the time
         this.base_speed = 3;
     },
 
-    //TODO: Implement go towards - so we can make it work on
-    //touch devices
-    maybeAlterDirection() {
-        if (this.altering > 0) {
-            this.altering -= 1;
+    goTowards(x, y) {
+        this.target = [x, y];
+    },
+
+    maybeChangeGoing() {
+        if (typeof(this.target) == 'undefined')
+            return;
+
+        var [x, y] = this.target;
+        var diff = [x - this.pos[0], y - this.pos[1]];
+
+        if (Math.abs(diff[0]) < 5 && Math.abs(diff[1]) < 5) {
+            this.target = undefined;
             return;
         }
+
+        var change_going;
+        if (Math.abs(diff[0]) > Math.abs(diff[1])) {
+            change_going = [Math.sign(diff[0]), 0];
+        } else {
+            change_going = [0, Math.sign(diff[1])];
+        }
+
+        if (veccmp(this.going, change_going))
+            this.altering = 15;
+
+        this.going = change_going;
+    },
+
+    //touch devices
+    maybeAlterDirection() {
+        if (this.altering-- > 0) {
+            return;
+        }
+
         if (veccmp(this.going, this.vector)) {
             // Slow down
-            this.altering = 10;
             this.speed = max(this.speed - 1, 0);
 
             // If we can go there in just one turn, do
@@ -241,7 +266,9 @@ Ant.prototype = {
                 !veccmp(turnLeft(this.vector), this.going)) {
                 this.vector = this.going;
             } else {
-                // Otherwise pick a random turnaround sequence
+                // There's only this fast we can pick adapting moves
+                this.altering = 5;
+
                 var rnd = Math.random();
                 if (rnd > .5) {
                     this.turnRight();
@@ -261,6 +288,7 @@ Ant.prototype = {
         }
 
         // Are we moving?
+        this.maybeChangeGoing();
         this.maybeAlterDirection();
 
         // Random antenna movements
@@ -322,6 +350,7 @@ Ant.prototype = {
     },
 
     render(scene, ctx) {
+        // Alterations should decrease
         // Frame .. only drawing in here
         // Jump right at speed=2
         if (this.speed == 1)
@@ -480,6 +509,9 @@ Scene.prototype = {
             }
         }
     },
+    touch(x, y) {
+        this.player.goTowards(x, y);
+    },
     up() {
         this.player.goUp();
     },
@@ -571,6 +603,9 @@ Scene.prototype = {
     }
 }
 
+// Global scene
+var scene;
+
 const LEFT=37;
 const UP=38;
 const RIGHT=39;
@@ -579,54 +614,51 @@ const SPACE=32;
 const ESC=27;
 const ENTER=13;
 
-var pressed = {
-	LEFT: false,
-	UP: false,
-	RIGHT: false,
-	DOWN: false,
-    SPACE: false,
-    ESC: false,
-    ENTER: false
-};
-
 window.addEventListener("keydown", function (e) {
-    pressed[e.keyCode] = true;
     e.preventDefault();
+    switch(e.keyCode) {
+        case LEFT:
+            scene.left();
+            break;
+        case RIGHT:
+            scene.right();
+            break;
+        case UP:
+            scene.up();
+            break;
+        case DOWN:
+            scene.down();
+            break;
+        case SPACE:
+            scene.space();
+            console.log('Player at ' + scene.player.pos);
+            break;
+        case ESC:
+            // Start over
+            scene.reset();
+            scene.load(lev0, true);
+            break;
+        case ENTER:
+            scene.enter();
+            break;
+    }
 }, false);
-
-window.addEventListener("keyup", function (e) {
-    pressed[e.keyCode] = false;
-}, false);
-
-function touchToKey(e) {
-	if (e.touches[1])
-        return ENTER;
-    if (e.touches[0].clientX > 300)
-        return RIGHT;
-    if (e.touches[0].clientX < 80)
-        return LEFT;
-    if (e.touches[0].clientY > 300)
-        return DOWN;
-    if (e.touches[0].clientY < 80)
-        return UP;
-    alert(e.touches[0].clientX + ' - ' + e.touches[0].clientY);
-}
 
 window.addEventListener('touchstart', function(e) {
     e.preventDefault();
-    pressed[touchToKey(e)] = true;
-}, false);
+	if (e.touches[1])
+        scenes.enter();
+    scene.touch(e.touches[0].clientX, e.touches[0].clientY);
+});
 
-window.addEventListener('touchend', function(e) {
+window.addEventListener('click', function(e) {
     e.preventDefault();
-    pressed[touchToKey(e)] = false;
-}, false);
-
+    scene.touch(e.clientX, e.clientY);
+});
 
 window.addEventListener('touchmove', function(e) {
     e.preventDefault();
-}, false);
-
+});
 
 
 window.onload = function () {
@@ -637,32 +669,12 @@ window.onload = function () {
 
     context.lineWidth = 4;
 
-    var scene = new Scene(context);
+    scene = new Scene(context);
+
     scene.load(lev0, true);
 
     var loop = function() {
         scene.render();
-
-        if (pressed[LEFT])
-            scene.left();
-        if (pressed[RIGHT])
-            scene.right();
-        if (pressed[UP])
-            scene.up();
-        if (pressed[DOWN])
-            scene.down();
-        if (pressed[SPACE]) {
-            scene.space();
-            console.log('Player at ' + scene.player.pos);
-        }
-        if (pressed[ESC]) {
-            // Start over
-            scene.reset();
-            scene.load(lev0, true);
-        }
-        if (pressed[ENTER]) {
-            scene.enter();
-        }
 
         window.requestAnimationFrame(loop);
     }
@@ -673,7 +685,7 @@ window.onload = function () {
 // Levels
 var lev0 = {
     'title': 'Welcome!',
-    'msg': "You control that ant with the arrow keys. Let's see if you can guess the rest OK.<br>Press enter to dismiss these messages.",
+    'msg': "You control that ant with the arrow keys or sort of by touch. Let's see if you can guess the rest OK.<br>Press enter to dismiss these messages or press with two fingers.",
     'bonus': 100,
     'tiles': [
         [E, E, E, E, E, E],
@@ -689,7 +701,7 @@ var levels = [lev0];
 
 levels.push({
     'title': 'Great',
-    'msg': "Now there are two sorts of ants. Sick ants, and you. If you touch a sick ant, you die. Press enter.",
+    'msg': "Now there are two sorts of ants. Sick ants, and you. If you touch a sick ant, you die. Press enter (or two-finger tap).",
     'bonus': 100,
     'tiles': [
         [E, E, E, E, A, E],
