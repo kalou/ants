@@ -1,7 +1,7 @@
 // CC BY-SA
 // Ant globals: sprite data
 // CORS issues dev avoided with ~ python -m SimpleHTTPServer 8000
-const BOX=384;
+var BOX = 768;
 
 function max(a, b) {
     return a < b ? b : a;
@@ -591,7 +591,7 @@ Scene.prototype = {
 
         if (this.done == DEAD) {
             if (--this.lives <= 0) {
-                this.displayMessage("Game over", "You caught a bad flu and you died. Your score is <b>" + this.score + "</b>, but can do better than dying at level " + this.level + "! You'll miss the insane million dollar scenes and special effects we invested in for the last level!", () => {
+                this.displayMessage("Game over", "You caught a bad flu and you died. Your score is <b>" + this.score + "</b>, but can do better than dying at level " + this.level + "! Make it to the last level!", () => {
                     this.reset();
                     this.level = 1;
                     this.load(levels[1]);
@@ -644,29 +644,51 @@ window.addEventListener("keydown", function (e) {
     }
 }, false);
 
-window.addEventListener('touchstart', function(e) {
-    e.preventDefault();
-	if (e.touches[1])
-        scenes.enter();
-    scene.touch(e.touches[0].clientX, e.touches[0].clientY);
-});
-
 window.addEventListener('click', function(e) {
     e.preventDefault();
     scene.touch(e.clientX, e.clientY);
 });
 
+/*
 window.addEventListener('touchmove', function(e) {
+    diff = [e.touches[0].clientX - last_touch[0],
+        e.touches[0].clientY - last_touch[1]];
+
+	var change_going;
+	if (Math.abs(diff[0]) > Math.abs(diff[1])) {
+        if (Math.sign(diff[0]) > 0)
+            scene.right();
+        else
+            scene.left();
+	} else {
+        if (Math.sign(diff[1]) > 0)
+            scene.down();
+        else
+            scene.up();
+	}
+
+    last_touch = [e.clientX, e.clientY];
     e.preventDefault();
 });
+*/
+
+window.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+
+	if (e.touches[1]) {
+        scene.enter();
+        return;
+    }
+
+    scene.touch(BOX * (e.touches[0].clientX / window.innerWidth),
+          BOX * (e.touches[0].clientY / window.innerHeight));
+}, false);
+
 
 
 window.onload = function () {
     var canvas = document.getElementsByTagName('canvas')[0],
         context = canvas.getContext('2d');
-    canvas.width = BOX;
-    canvas.height = BOX;
-
     context.lineWidth = 4;
 
     scene = new Scene(context);
