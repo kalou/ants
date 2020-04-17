@@ -1,6 +1,7 @@
 // CC BY-SA
 // Ant globals: sprite data
 // CORS issues dev avoided with ~ python -m SimpleHTTPServer 8000
+const BOX=384;
 
 function max(a, b) {
     return a < b ? b : a;
@@ -97,7 +98,8 @@ function loadSprite(ctx, name, scale) {
 
 var spritesCache = {};
 
-function drawImage(name, ctx, x, y, scale, rotated) {
+function drawImage(name, ctx, x, y, scale, rotated)
+{
     var sprites;
 
     if (!(scale in spritesCache)) {
@@ -222,6 +224,8 @@ Ant.prototype = {
         this.base_speed = 3;
     },
 
+    //TODO: Implement go towards - so we can make it work on
+    //touch devices
     maybeAlterDirection() {
         if (this.altering > 0) {
             this.altering -= 1;
@@ -296,10 +300,16 @@ Ant.prototype = {
 
             switch(other.type) {
                 case A:
+                    if (this.type == P)
+                        scene.die();
                 case W:
                 case P:
-                case F:
                     return true;
+                case F:
+                    if (this.type == P)
+                        scene.win();
+                    return true;
+                    // else what could happen to ants?
                 default:
                     return false;
             }
@@ -363,7 +373,12 @@ function Player(x, y, scale) {
 
 Player.prototype = Object.create(Ant.prototype);
 
-function Scene() {
+function Scene(ctx) {
+    this.ctx = ctx;
+    this.lives = 3;
+    this.score = 42;
+    this.bonus = 0;
+    this.level = 0;
     this.ants = [];
 }
 
@@ -380,11 +395,14 @@ const A=2;
 const F=3;
 const W=99;
 
+const WON=101;
+const DEAD=102;
+
 Scene.prototype = {
     collisions(obj) {
         // Fake walls around scene
         if ((obj.pos[0] < 0) || (obj.pos[1] < 0) ||
-            (obj.pos[0] >= 768 - obj.width) || (obj.pos[1] >= 768 - obj.height))
+            (obj.pos[0] >= BOX - obj.width) || (obj.pos[1] >= BOX - obj.height))
             return [new Wall(0,0,0)];
 
         // Returns an array of collided objects for me
@@ -393,7 +411,16 @@ Scene.prototype = {
             return collides(obj, target);
         });
     },
-    load(array) {
+    displayMessage(title, msg, andthen) {
+        message = document.getElementById("message");
+        message.innerHTML = '<h1>' + title + '</h1>' +
+            '<p>' + msg + '</p>';
+        this.modal = document.getElementById("modal");
+        this.modal.style.display = "block";
+        this.renderScores();
+        this.after_modal = andthen;
+    },
+    load(level) {
         // A scene is square.
         // A scene definition has:
         // Nothing (...)
@@ -401,11 +428,19 @@ Scene.prototype = {
         // Ants ("IA" shit)
         // Scale is computed by how many cells in the array
         // depending on the canvas size.
-        // The reference sprite is 128x128 and the canvas size is 768x768
+        // The reference sprite is 128x128 and the canvas size is BOXxBOX
+        //
+        this.ctx.clearRect(0, 0, BOX, BOX);
 
-        this.scale = Math.ceil(128 * array.length / 768);
+        this.displayMessage(level['title'], level['msg']);
+
+        this.bonus = level['bonus'];
+        this.done = undefined;
+
+        var array = level['tiles'];
+
+        this.scale = Math.ceil(128 * array.length / BOX);
         this.gameObjects = [];
-
 
         // Create a wall around the scene
         array.forEach((rowobj, row) => {
@@ -435,15 +470,104 @@ Scene.prototype = {
             });
         });
     },
-    render(ctx) {
+
+    removeMessage() {
+        if (this.modal) {
+            this.modal.style.display = "none";
+            this.modal = undefined;
+            if (this.after_modal) {
+                this.after_modal();
+            }
+        }
+    },
+    up() {
+        this.player.goUp();
+    },
+    down() {
+        this.player.goDown();
+    },
+    left() {
+        this.player.goLeft();
+    },
+    right() {
+        this.player.goRight();
+    },
+    enter() {
+        this.removeMessage();
+    },
+    space() {
+        if (this.bonus > 0) {
+            this.bonus -= 10;
+            this.player.speedBoost();
+        }
+    },
+    win() {
+        this.done = WON;
+        this.score += this.bonus;
+        this.bonus = 0;
+    },
+    die() {
+        this.done = DEAD;
+    },
+    reset() {
+        this.level = 0;
+        this.bonus = 0;
+        this.lives = 3;
+        this.score = 42;
+    },
+    restartWith(title, msg) {
+       this.load({
+            'title': title,
+            'msg': msg,
+            'tiles': levels[this.level].tiles,
+            'bonus': levels[this.level].bonus
+        });
+    },
+    renderScores() {
+        document.getElementById('level').innerHTML = this.level;
+        document.getElementById('bonus').innerHTML = this.bonus;
+        document.getElementById('score').innerHTML = this.score;
+        document.getElementById('lives').innerHTML = this.lives;
+    },
+    render() {
+        if (this.modal) {
+            return;
+        }
+
+        this.renderScores();
+
         this.gameObjects.forEach((obj) => {
             switch(obj.type) {
                 case A:
                     obj.brain(this);
                     break;
             }
-            obj.render(this, ctx);
+            obj.render(this, this.ctx);
         });
+
+        if (this.bonus > 0)
+            this.bonus -= 1;
+
+        if (this.done == WON) {
+            var lev = levels[++this.level];
+            if (typeof(lev) == 'undefined') {
+                var msg = "Ahem.. I need to add levels.. do it again? You'll keep your score";
+                this.level = 1;
+                this.restartWith('Oh wow look at you!', msg);
+            } else this.load(lev);
+        }
+
+        if (this.done == DEAD) {
+            if (--this.lives <= 0) {
+                this.displayMessage("Game over", "You caught a bad flu and you died. Your score is <b>" + this.score + "</b>, but can do better than dying at level " + this.level + "! You'll miss the insane million dollar scenes and special effects we invested in for the last level!", () => {
+                    this.reset();
+                    this.level = 1;
+                    this.load(levels[1]);
+                });
+            } else {
+                this.restartWith("Oh noes, infected!", "Here, it's OK, you just lost a life. Take some chloroquine - try this level again");
+            }
+        }
     }
 }
 
@@ -452,71 +576,168 @@ const UP=38;
 const RIGHT=39;
 const DOWN=40;
 const SPACE=32;
+const ESC=27;
+const ENTER=13;
 
 var pressed = {
 	LEFT: false,
 	UP: false,
 	RIGHT: false,
 	DOWN: false,
-    SPACE: false
+    SPACE: false,
+    ESC: false,
+    ENTER: false
 };
 
 window.addEventListener("keydown", function (e) {
-    if (e.keyCode in pressed) {
-        pressed[e.keyCode] = true;
-    }
+    pressed[e.keyCode] = true;
     e.preventDefault();
-});
+}, false);
 
 window.addEventListener("keyup", function (e) {
     pressed[e.keyCode] = false;
-});
+}, false);
+
+function touchToKey(e) {
+	if (e.touches[1])
+        return ENTER;
+    if (e.touches[0].clientX > 300)
+        return RIGHT;
+    if (e.touches[0].clientX < 80)
+        return LEFT;
+    if (e.touches[0].clientY > 300)
+        return DOWN;
+    if (e.touches[0].clientY < 80)
+        return UP;
+    alert(e.touches[0].clientX + ' - ' + e.touches[0].clientY);
+}
+
+window.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    pressed[touchToKey(e)] = true;
+}, false);
+
+window.addEventListener('touchend', function(e) {
+    e.preventDefault();
+    pressed[touchToKey(e)] = false;
+}, false);
+
+
+window.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+}, false);
+
+
 
 window.onload = function () {
     var canvas = document.getElementsByTagName('canvas')[0],
         context = canvas.getContext('2d');
-    canvas.width = 768;
-    canvas.height = 768;
+    canvas.width = BOX;
+    canvas.height = BOX;
 
     context.lineWidth = 4;
 
-    var scene = new Scene();
-
-    scene.load(lev18);
-
+    var scene = new Scene(context);
+    scene.load(lev0, true);
 
     var loop = function() {
-        scene.render(context);
-        window.requestAnimationFrame(loop);
+        scene.render();
 
         if (pressed[LEFT])
-            scene.player.goLeft();
+            scene.left();
         if (pressed[RIGHT])
-            scene.player.goRight();
+            scene.right();
         if (pressed[UP])
-            scene.player.goUp();
+            scene.up();
         if (pressed[DOWN])
-            scene.player.goDown();
+            scene.down();
         if (pressed[SPACE]) {
-            scene.player.speedBoost();
+            scene.space();
             console.log('Player at ' + scene.player.pos);
         }
+        if (pressed[ESC]) {
+            // Start over
+            scene.reset();
+            scene.load(lev0, true);
+        }
+        if (pressed[ENTER]) {
+            scene.enter();
+        }
+
+        window.requestAnimationFrame(loop);
     }
 
     window.requestAnimationFrame(loop);
 };
 
 // Levels
-var lev0 = [
-    [E, E, E, E, E, E],
-    [E, E, E, E, E, E],
-    [E, E, A, E, E, E],
-    [E, E, E, E, E, E],
-    [E, E, E, E, E, E],
-    [E, E, E, F, E, E],
-];
+var lev0 = {
+    'title': 'Welcome!',
+    'msg': "You control that ant with the arrow keys. Let's see if you can guess the rest OK.<br>Press enter to dismiss these messages.",
+    'bonus': 100,
+    'tiles': [
+        [E, E, E, E, E, E],
+        [E, E, E, E, E, E],
+        [E, E, P, E, E, E],
+        [E, E, E, E, E, E],
+        [E, E, E, E, E, E],
+        [E, E, E, F, E, E],
+    ]
+};
 
-var lev9 = [
+var levels = [lev0];
+
+levels.push({
+    'title': 'Great',
+    'msg': "Now there are two sorts of ants. Sick ants, and you. If you touch a sick ant, you die. Press enter.",
+    'bonus': 100,
+    'tiles': [
+        [E, E, E, E, A, E],
+        [E, E, E, E, E, E],
+        [F, F, F, F, F, F],
+        [E, E, E, E, E, E],
+        [E, P, E, E, E, E],
+        [E, E, E, E, E, E],
+    ]
+
+});
+
+levels.push({
+    'title': 'What!?',
+    'msg': "This level was a joke. So you figured it's a bit of a stretch to guess which ant you are, and which ones are sick, cause I ran out of money for the cheap sprite designer so they all look the same. This is no joke, there's a bad virus out there, you touch an ant, you really die. There will be no shelter in place for the next level.",
+    'bonus': 100,
+    'tiles': [
+        [E, E, E, E, A, E],
+        [E, E, E, E, E, E],
+        [E, E, E, E, E, E],
+        [E, E, E, E, F, E],
+        [E, P, E, E, E, E],
+        [E, E, E, E, E, E],
+    ]
+
+});
+
+levels.push({
+    'title': 'Got it!?',
+    'msg': "I suppose you got it - Feel free to send money to kalou at this domain so I can afford a sprite designer. If you want to pay me large sums of money so I never work in the game industry the above email also works.",
+    'bonus': 100,
+    'tiles': [
+        [E, E, E, E, A, E],
+        [E, P, E, E, E, E],
+        [E, E, E, E, E, E],
+        [E, E, E, E, E, E],
+        [E, E, E, A, E, E],
+        [E, E, E, F, E, E],
+    ]
+
+});
+
+
+levels.push({
+    'title': "Bravo!",
+    'msg': "Ants are small. Will you figure out your ant and the exit in this smaller world without your reading glasses? Press enter to find out.",
+    'bonus': 400,
+    'tiles': [
        [P, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, A, E, E, E, E, E, E, E, E],
@@ -529,10 +750,35 @@ var lev9 = [
        [E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, F],
        [E, E, E, E, E, E, E, E, E, E, E, E],
-    ];
+    ]
+});
 
-var lev18 = [
-       [E, E, E, E, E, E, E, E, E, E, E, E, P, E, E, E, E, E, E, E, E, E, E, E],
+levels.push({
+    'title': "Cheers..",
+    'msg': "More ants - and the next level will be really cool!",
+    'bonus': 400,
+    'tiles': [
+       [P, E, E, E, E, E, E, E, A, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, A, E, E, E],
+       [E, E, E, A, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, A, E, E, F],
+       [E, E, E, E, E, E, E, E, E, E, E, E],
+    ]
+});
+
+levels.push({
+    'title': "You're too good!",
+    'msg': "Did you consider playing competitive ants? Let me make them smaller.",
+    'bonus': 400,
+    'tiles': [
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, A, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
@@ -543,6 +789,7 @@ var lev18 = [
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, F],
+       [E, E, E, E, P, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
@@ -555,10 +802,67 @@ var lev18 = [
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
-       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
-    ];
+    ]
+});
 
-var lev18 = [
+levels.push({
+    'title': "Add some anties!",
+    'msg': "How do you perform during peak ant time",
+    'bonus': 400,
+    'tiles': [
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, A, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, A, E, E, E, E, E, E, E, E, E, E, A, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, A, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, A, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, F],
+       [E, E, E, E, P, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, A, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
+    ]
+});
+
+levels.push({
+    'title': "Are you beating the high score?",
+    'msg': "It's getting a bit tough here",
+    'bonus': 400,
+    'tiles': [
+       [P, E, E, E, E, E, E, E, A, E, E, E],
+       [E, E, E, E, E, E, A, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, A, E, E, E],
+       [E, E, E, A, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, A, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, E, E, E, E, E, E, E, E, E],
+       [E, E, E, A, E, E, E, E, A, E, E, F],
+       [E, E, E, E, E, E, E, E, E, E, E, E],
+    ]
+});
+
+
+levels.push({
+    'title': 'Mega Boss level',
+    'msg': "Sorry if your fan makes noise! Can you win this one? Hint: figure out where you start, and it'll be easy",
+    'bonus': 2500,
+    'tiles': [
        [E, E, E, E, E, E, E, E, E, E, E, E, P, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, A, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
@@ -583,7 +887,5 @@ var lev18 = [
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
-    ];
-
-
-
+    ]
+});
