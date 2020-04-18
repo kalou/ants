@@ -223,7 +223,9 @@ Ant.prototype = {
     },
 
     goTowards(x, y) {
+        // Player function, base speed reset to slower
         this.target = [x, y];
+        this.base_speed = 2;
     },
 
     maybeChangeGoing() {
@@ -233,8 +235,9 @@ Ant.prototype = {
         var [x, y] = this.target;
         var diff = [x - this.pos[0], y - this.pos[1]];
 
-        if (Math.abs(diff[0]) < 5 && Math.abs(diff[1]) < 5) {
+        if (Math.abs(diff[0]) < BOX/16 && Math.abs(diff[1]) < BOX/16) {
             this.target = undefined;
+            this.base_speed = 0;
             return;
         }
 
@@ -284,7 +287,7 @@ Ant.prototype = {
         this.speed = this.base_speed;
         if (this.boost > 0) {
             this.boost -= 10;
-            this.speed = this.base_speed + 10 * Math.sin(this.boost / 100);
+            this.speed = this.base_speed + 3 * Math.sin(this.boost / 100);
         }
 
         // Are we moving?
@@ -510,6 +513,9 @@ Scene.prototype = {
         }
     },
     touch(x, y) {
+        if (this.modal) {
+            return;
+        }
         this.player.goTowards(x, y);
     },
     up() {
@@ -535,7 +541,7 @@ Scene.prototype = {
     },
     win() {
         this.done = WON;
-        this.score += this.bonus;
+        this.score += 100 + this.bonus;
         this.bonus = 0;
     },
     die() {
@@ -644,11 +650,6 @@ window.addEventListener("keydown", function (e) {
     }
 }, false);
 
-window.addEventListener('click', function(e) {
-    e.preventDefault();
-    scene.touch(e.clientX, e.clientY);
-});
-
 /*
 window.addEventListener('touchmove', function(e) {
     diff = [e.touches[0].clientX - last_touch[0],
@@ -672,7 +673,7 @@ window.addEventListener('touchmove', function(e) {
 });
 */
 
-window.addEventListener('touchstart', function(e) {
+function handleTouch(e) {
     e.preventDefault();
 
 	if (e.touches[1]) {
@@ -682,9 +683,18 @@ window.addEventListener('touchstart', function(e) {
 
     scene.touch(BOX * (e.touches[0].clientX / window.innerWidth),
           BOX * (e.touches[0].clientY / window.innerHeight));
-}, false);
+}
+
+/*
+window.addEventListener('click', function(e) {
+    e.preventDefault();
+    scene.touch(e.clientX, e.clientY);
+});
+*/
 
 
+window.addEventListener('touchmove', handleTouch, false);
+window.addEventListener('touchstart',  handleTouch, false);
 
 window.onload = function () {
     var canvas = document.getElementsByTagName('canvas')[0],
@@ -708,7 +718,7 @@ window.onload = function () {
 var lev0 = {
     'title': 'Welcome!',
     'msg': "You control that ant with the arrow keys or sort of by touch. Let's see if you can guess the rest OK.<br>Press enter to dismiss these messages or press with two fingers.",
-    'bonus': 100,
+    'bonus': 500,
     'tiles': [
         [E, E, E, E, E, E],
         [E, E, E, E, E, E],
@@ -724,7 +734,7 @@ var levels = [lev0];
 levels.push({
     'title': 'Great',
     'msg': "Now there are two sorts of ants. Sick ants, and you. If you touch a sick ant, you die. Press enter (or two-finger tap).",
-    'bonus': 100,
+    'bonus': 300,
     'tiles': [
         [E, E, E, E, A, E],
         [E, E, E, E, E, E],
@@ -739,7 +749,7 @@ levels.push({
 levels.push({
     'title': 'What!?',
     'msg': "This level was a joke. So you figured it's a bit of a stretch to guess which ant you are, and which ones are sick, cause I ran out of money for the cheap sprite designer so they all look the same. This is no joke, there's a bad virus out there, you touch an ant, you really die. There will be no shelter in place for the next level.",
-    'bonus': 100,
+    'bonus': 300,
     'tiles': [
         [E, E, E, E, A, E],
         [E, E, E, E, E, E],
@@ -754,7 +764,7 @@ levels.push({
 levels.push({
     'title': 'Got it!?',
     'msg': "I suppose you got it - Feel free to send money to kalou at this domain so I can afford a sprite designer. If you want to pay me large sums of money so I never work in the game industry the above email also works.",
-    'bonus': 100,
+    'bonus': 400,
     'tiles': [
         [E, E, E, E, A, E],
         [E, P, E, E, E, E],
@@ -770,7 +780,7 @@ levels.push({
 levels.push({
     'title': "Bravo!",
     'msg': "Ants are small. Will you figure out your ant and the exit in this smaller world without your reading glasses? Press enter to find out.",
-    'bonus': 400,
+    'bonus': 500,
     'tiles': [
        [P, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E],
@@ -790,7 +800,7 @@ levels.push({
 levels.push({
     'title': "Cheers..",
     'msg': "More ants - and the next level will be really cool!",
-    'bonus': 400,
+    'bonus': 500,
     'tiles': [
        [P, E, E, E, E, E, E, E, A, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E],
@@ -895,7 +905,7 @@ levels.push({
 levels.push({
     'title': 'Mega Boss level',
     'msg': "Sorry if your fan makes noise! Can you win this one? Hint: figure out where you start, and it'll be easy",
-    'bonus': 2500,
+    'bonus': 800,
     'tiles': [
        [E, E, E, E, E, E, E, E, E, E, E, E, P, E, E, E, E, E, E, E, E, E, E, E],
        [E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E, E],
